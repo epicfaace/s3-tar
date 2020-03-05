@@ -66,9 +66,9 @@ def gen_files():
     print("gen files...")
     del_and_make_dir(OUTPUT_DIR)
     del_and_make_dir(INPUT_DIR)
-    gen_text("input/simple/foo", 10)
-    gen_text("input/simple/bar", 10)
-    gen_text("input/big/small", 10)
+    gen_text("input/simple/foo", 100)
+    gen_text("input/simple/bar", 100)
+    gen_text("input/big/small", 100)
     # gen_sparse("input/big/bar", 10 * 10**9) # 10 GB
     gen_sparse("input/big/bar", 1 * 10**9) # 1 GB
     print("done gen files")
@@ -85,13 +85,13 @@ class S3TestBase:
             print("\tskipping creation of tar file.")
         else:
             print("\tcreating tar file...")
-            with tarfile.open(tar_file, "w:gz") as tar:
+            with tarfile.open(tar_file, "w:") as tar:
                 tar.add(input_dir)
             print(f"\ttook {time() - init_time}")
         
         tar_metadata_fileobj = BytesIO()
         tarinfos = []
-        with tarfile.open(tar_file, "r:gz") as tar:
+        with tarfile.open(tar_file, "r:") as tar:
             for tarinfo in tar:
                 assert(tarinfo.offset + 512 == tarinfo.offset_data)
                 tar_metadata_fileobj.write(tarinfo.tobuf())
@@ -106,7 +106,7 @@ class S3TestBase:
     def download_all(self, output_dir, key):
         init_time = time()
         response = s3_client.get_object(Bucket=BUCKET_NAME, Key=key)
-        with tarfile.open(fileobj=response["Body"], mode='r|gz') as tar:
+        with tarfile.open(fileobj=response["Body"], mode='r|') as tar:
             tar.extractall(output_dir + "/" + self.test_type)
     
     def download_single(self, output_dir, key, metadata_key, single_file_path):
@@ -114,6 +114,7 @@ class S3TestBase:
         s3_client.download_fileobj(BUCKET_NAME, metadata_key, tar_metadata_fileobj)
         tar_metadata_fileobj.seek(0)
         found_tarinfo = None
+        offset = 0
         while True:
             data = tar_metadata_fileobj.read(512)
             if len(data) == 0: break
@@ -122,16 +123,18 @@ class S3TestBase:
             # assert(tarinfo.offset + 512 == tarinfo.offset_data)
             if tarinfo.name == single_file_path:
                 found_tarinfo = tarinfo
+                offset += 512
                 break
+            offset += 512 + tarinfo.size
 
         if not found_tarinfo:
             print(f"tarinfo not found for file: {single_file_path}")
         
-        found_tarinfo.offset = 0
-        found_tarinfo.offset_data = 512
-        print(found_tarinfo.offset, found_tarinfo.offset_data)
-        range_ = "bytes={}-{}/{}".format(found_tarinfo.offset_data, found_tarinfo.offset_data + found_tarinfo.size - 1, found_tarinfo.size)
-        range = "bytes=0-10"
+        # found_tarinfo.offset = 0
+        # found_tarinfo.offset_data = 512
+        print(found_tarinfo.offset, found_tarinfo.offset_data, offset)
+        range_ = "bytes={}-{}".format(offset, offset + found_tarinfo.size - 1)
+        # range = "bytes=0-0"
         print(range_)
         response = s3_client.get_object(Bucket=BUCKET_NAME, Key=key, Range=range_)
         # Construct tar
@@ -140,7 +143,9 @@ class S3TestBase:
         # tarfile_obj = BytesIO()
         # with tarfile.open(fileobj=tarfile_obj, mode='w:') as tar:
         #     tar.addfile(found_tarinfo, found_fileobj)
+        # assert("ContentRange" in response)
         data = response["Body"].read()
+        print("AR", data)
         # print(data)
         # decompressed = gzip.decompress(data)
         # print(decompressed)
@@ -160,8 +165,8 @@ class S3TestBase:
         bundleid = str(uuid.uuid4())
         input_dir = INPUT_DIR + "/" + self.test_name
         output_dir = OUTPUT_DIR + "/" + self.test_name
-        tar_file = INPUT_DIR + "/" + self.test_name + ".tar.gz"
-        key = bundleid + "/bundle.tar.gz"
+        tar_file = INPUT_DIR + "/" + self.test_name + ".tar"
+        key = bundleid + "/bundle.tar"
         metadata_key = bundleid + "/metadata.bin"
         self.upload_file(input_dir, tar_file, key, metadata_key)
         init_time = time()
