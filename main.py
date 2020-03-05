@@ -66,28 +66,31 @@ def gen_files():
     del_and_make_dir(INPUT_DIR)
     gen_bin("input/simple/foo", 10)
     gen_text("input/simple/bar", 10)
-    gen_sparse("input/big/bar", 10 * 10**9) # 10 GB
+    gen_text("input/big/small", 10)
+    # gen_sparse("input/big/bar", 10 * 10**9) # 10 GB
+    gen_sparse("input/big/bar", 100 * 10**6) # 100 MB
     print("done gen files")
 
 
-# gen_files()
+gen_files()
 
 class S3TestBase:
     def setUp(self):
         print(f"starting test, test_name={self.test_name}, test_type={self.test_type}")
     def upload_file(self, file_name, key):
-        init_time = time()
-        print("\tuploading file...")
         response = s3_client.upload_file(file_name, BUCKET_NAME, key)
-        print(f"\ttook {time() - init_time}")
-    def download_file(self, output_dir, key):
-        print("\tdownloading file...")
+    def download_all_files(self, output_dir, key):
+        init_time = time()
+        response = s3_client.get_object(Bucket=BUCKET_NAME, Key=key)
+        with tarfile.open(fileobj=response["Body"], mode='r|gz') as tar:
+            tar.extractall(output_dir + "/" + self.test_type)
+    def download_single(self, output_dir, key, single_file_name):
+        input_dir = INPUT_DIR + "/" + self.test_name
         response = s3_client.get_object(Bucket=BUCKET_NAME, Key=key)
         # Range=...
         # https://kokes.github.io/blog/2018/07/26/s3-objects-streaming-python.html
         with tarfile.open(fileobj=response["Body"], mode='r|gz') as tar:
-            tar.extractall(output_dir)
-        print(f"\ttook {time() - init_time}")
+            tar.extract(input_dir + "/" + self.single_file_name, output_dir)
     def test_run(self):
         bundleid = str(uuid.uuid4())
         input_dir = INPUT_DIR + "/" + self.test_name
@@ -100,7 +103,7 @@ class S3TestBase:
         else:
             print("\tcreating tar file...")
             with tarfile.open(tar_file, "w:gz") as tar:
-                tar.add(input_dir, arcname=self.test_type)
+                tar.add(input_dir)
             print(f"\ttook {time() - init_time}")
         init_time = time()
         print("\tuploading tar file...")
@@ -108,21 +111,34 @@ class S3TestBase:
         print(f"\ttook {time() - init_time}")
         init_time = time()
         print("\tdownloading tar file...")
-        if self.test_type == "extractall":
-            self.download_file(output_dir, key)
+        if self.test_type == "download_all":
+            self.download_all_files(output_dir, key)
+            cmp = filecmp.dircmp(input_dir, output_dir + "/" + self.test_type).diff_files
+            self.assertEqual(len(cmp), 0)
+        elif self.test_type == "download_single":
+            self.download_single(output_dir, key, self.single_file_name)
         print(f"\ttook {time() - init_time}")
         init_time = time()
 
-        cmp = filecmp.dircmp(input_dir, output_dir + "/" + self.test_type).diff_files
-        self.assertEqual(len(cmp), 0)
+
 
 class S3BasicTest(S3TestBase, unittest.TestCase):
     test_name = "simple"
-    test_type = "extractall"
+    test_type = "download_all"
 
-class S3BigTest(S3TestBase, unittest.TestCase):
-    test_name = "big"
-    test_type = "extractall"
+class S3BasicTestSingle(S3TestBase, unittest.TestCase):
+    test_name = "simple"
+    test_type = "download_single"
+    single_file_name = "foo"
+
+# class S3BigTest(S3TestBase, unittest.TestCase):
+#     test_name = "big"
+#     test_type = "download_all"
+
+# class S3BigTestSingle(S3TestBase, unittest.TestCase):
+#     test_name = "big"
+#     test_type = "download_single"
+#     single_file_name = "small"
 
 if __name__ == "__main__":
     unittest.main()
