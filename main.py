@@ -19,9 +19,50 @@ TAR_FILE = "out.tar.gz"
 INPUT_DIR = "input"
 OUTPUT_DIR = "output"
 
-if os.path.exists(OUTPUT_DIR):
-    shutil.rmtree(OUTPUT_DIR)
-Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
+def gen_bin(filename,size):
+    """
+    generate big binary file with the specified size in bytes
+    https://www.bswen.com/2018/04/python-How-to-generate-random-large-file-using-python.html
+    :param filename: the filename
+    :param size: the size in bytes
+    :return:void
+    """
+    os.makedirs(os.path.dirname(filename), exist_ok=True)
+    with open(filename, 'wb') as fout:
+        fout.write(os.urandom(size))
+
+def gen_text(filename,size):
+    """
+    generate big random letters/alphabets to a file
+    :param filename: the filename
+    :param size: the size in bytes
+    :return: void
+    """
+    import random
+    import string
+
+    chars = ''.join([random.choice(string.ascii_letters) for i in range(size)]) #1
+
+    os.makedirs(os.path.dirname(filename), exist_ok=True)
+    with open(filename, 'w') as f:
+        f.write(chars)
+
+def del_and_make_dir(dirname):
+    if os.path.exists(dirname):
+        shutil.rmtree(dirname)
+    Path(dirname).mkdir(parents=True, exist_ok=True)
+
+def gen_files():
+    del_and_make_dir(OUTPUT_DIR)
+    del_and_make_dir(INPUT_DIR)
+    gen_bin("input/simple/foo", 10)
+    gen_text("input/simple/bar", 10)
+    gen_bin("input/big/foo", 10**9)
+    gen_text("input/big/bar", 10)
+    # generate_big_random_bin_file(x, y for x, y in FILES.items())
+
+
+gen_files()
 
 class S3TestBase:
     def setUp(self):
