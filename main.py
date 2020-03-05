@@ -11,6 +11,8 @@ import tarfile
 import uuid
 import shutil
 from time import time
+from io import BytesIO
+import gzip
 
 BUCKET_NAME = "codalab-test"
 AWS_PROFILE_NAME = "codalab-test"
@@ -64,11 +66,11 @@ def gen_files():
     print("gen files...")
     del_and_make_dir(OUTPUT_DIR)
     del_and_make_dir(INPUT_DIR)
-    gen_bin("input/simple/foo", 10)
+    gen_text("input/simple/foo", 10)
     gen_text("input/simple/bar", 10)
     gen_text("input/big/small", 10)
     # gen_sparse("input/big/bar", 10 * 10**9) # 10 GB
-    gen_sparse("input/big/bar", 100 * 10**6) # 100 MB
+    gen_sparse("input/big/bar", 1 * 10**9) # 1 GB
     print("done gen files")
 
 
@@ -77,26 +79,7 @@ gen_files()
 class S3TestBase:
     def setUp(self):
         print(f"starting test, test_name={self.test_name}, test_type={self.test_type}")
-    def upload_file(self, file_name, key):
-        response = s3_client.upload_file(file_name, BUCKET_NAME, key)
-    def download_all_files(self, output_dir, key):
-        init_time = time()
-        response = s3_client.get_object(Bucket=BUCKET_NAME, Key=key)
-        with tarfile.open(fileobj=response["Body"], mode='r|gz') as tar:
-            tar.extractall(output_dir + "/" + self.test_type)
-    def download_single(self, output_dir, key, single_file_name):
-        input_dir = INPUT_DIR + "/" + self.test_name
-        response = s3_client.get_object(Bucket=BUCKET_NAME, Key=key)
-        # Range=...
-        # https://kokes.github.io/blog/2018/07/26/s3-objects-streaming-python.html
-        with tarfile.open(fileobj=response["Body"], mode='r|gz') as tar:
-            tar.extract(input_dir + "/" + self.single_file_name, output_dir)
-    def test_run(self):
-        bundleid = str(uuid.uuid4())
-        input_dir = INPUT_DIR + "/" + self.test_name
-        output_dir = OUTPUT_DIR + "/" + self.test_name
-        tar_file = INPUT_DIR + "/" + self.test_name + ".tar.gz"
-        key = bundleid + "/bundle.tar.gz"
+    def upload_file(self, input_dir, tar_file, key, metadata_key):
         init_time = time()
         if os.path.exists(tar_file):
             print("\tskipping creation of tar file.")
@@ -105,18 +88,90 @@ class S3TestBase:
             with tarfile.open(tar_file, "w:gz") as tar:
                 tar.add(input_dir)
             print(f"\ttook {time() - init_time}")
+        
+        tar_metadata_fileobj = BytesIO()
+        tarinfos = []
+        with tarfile.open(tar_file, "r:gz") as tar:
+            for tarinfo in tar:
+                assert(tarinfo.offset + 512 == tarinfo.offset_data)
+                tar_metadata_fileobj.write(tarinfo.tobuf())
+        tar_metadata_fileobj.seek(0)
+
         init_time = time()
         print("\tuploading tar file...")
-        self.upload_file(tar_file, key)
+        response = s3_client.upload_file(tar_file, BUCKET_NAME, key)
+        s3_client.upload_fileobj(tar_metadata_fileobj, BUCKET_NAME, metadata_key)
         print(f"\ttook {time() - init_time}")
+
+    def download_all(self, output_dir, key):
+        init_time = time()
+        response = s3_client.get_object(Bucket=BUCKET_NAME, Key=key)
+        with tarfile.open(fileobj=response["Body"], mode='r|gz') as tar:
+            tar.extractall(output_dir + "/" + self.test_type)
+    
+    def download_single(self, output_dir, key, metadata_key, single_file_path):
+        tar_metadata_fileobj = BytesIO()
+        s3_client.download_fileobj(BUCKET_NAME, metadata_key, tar_metadata_fileobj)
+        tar_metadata_fileobj.seek(0)
+        found_tarinfo = None
+        while True:
+            data = tar_metadata_fileobj.read(512)
+            if len(data) == 0: break
+            tarinfo = tarfile.TarInfo.frombuf(data, encoding=tarfile.ENCODING, errors="")
+            print(f"\tfile: {tarinfo.name}")
+            # assert(tarinfo.offset + 512 == tarinfo.offset_data)
+            if tarinfo.name == single_file_path:
+                found_tarinfo = tarinfo
+                break
+
+        if not found_tarinfo:
+            print(f"tarinfo not found for file: {single_file_path}")
+        
+        found_tarinfo.offset = 0
+        found_tarinfo.offset_data = 512
+        print(found_tarinfo.offset, found_tarinfo.offset_data)
+        range_ = "bytes={}-{}/{}".format(found_tarinfo.offset_data, found_tarinfo.offset_data + found_tarinfo.size - 1, found_tarinfo.size)
+        range = "bytes=0-10"
+        print(range_)
+        response = s3_client.get_object(Bucket=BUCKET_NAME, Key=key, Range=range_)
+        # Construct tar
+        # found_fileobj = BytesIO(gzip.decompress(response["Body"].read()))
+        # found_fileobj.seek(0)
+        # tarfile_obj = BytesIO()
+        # with tarfile.open(fileobj=tarfile_obj, mode='w:') as tar:
+        #     tar.addfile(found_tarinfo, found_fileobj)
+        data = response["Body"].read()
+        # print(data)
+        # decompressed = gzip.decompress(data)
+        # print(decompressed)
+        found_fileobj = BytesIO(data)
+        found_fileobj.seek(0)
+        tarfile_obj = BytesIO()
+        with tarfile.open(fileobj=tarfile_obj, mode='w:') as tar:
+            tar.addfile(found_tarinfo, found_fileobj)
+        # Extract tar
+        tarfile_obj.seek(0)
+        with tarfile.open(fileobj=tarfile_obj, mode='r:') as tar:
+            for tarinfo in tar:
+                assert(tarinfo.offset + 512 == tarinfo.offset_data)
+            tar.extractall(output_dir + "/" + self.test_type)
+    
+    def test_run(self):
+        bundleid = str(uuid.uuid4())
+        input_dir = INPUT_DIR + "/" + self.test_name
+        output_dir = OUTPUT_DIR + "/" + self.test_name
+        tar_file = INPUT_DIR + "/" + self.test_name + ".tar.gz"
+        key = bundleid + "/bundle.tar.gz"
+        metadata_key = bundleid + "/metadata.bin"
+        self.upload_file(input_dir, tar_file, key, metadata_key)
         init_time = time()
         print("\tdownloading tar file...")
         if self.test_type == "download_all":
-            self.download_all_files(output_dir, key)
+            self.download_all(output_dir, key)
             cmp = filecmp.dircmp(input_dir, output_dir + "/" + self.test_type).diff_files
             self.assertEqual(len(cmp), 0)
         elif self.test_type == "download_single":
-            self.download_single(output_dir, key, self.single_file_name)
+            self.download_single(output_dir, key, metadata_key, input_dir + "/" + self.single_file_name)
         print(f"\ttook {time() - init_time}")
         init_time = time()
 
