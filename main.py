@@ -77,8 +77,11 @@ def gen_files():
 gen_files()
 
 class S3TestBase:
+    test_name = None
+    test_type = None
+    single_file_name = None
     def setUp(self):
-        print(f"starting test, test_name={self.test_name}, test_type={self.test_type}")
+        print(f"starting test, test_name={self.test_name}, test_type={self.test_type}, single_file_name={self.single_file_name}")
     def upload_file(self, input_dir, tar_file, key, metadata_key):
         init_time = time()
         if os.path.exists(tar_file):
@@ -130,25 +133,9 @@ class S3TestBase:
         if not found_tarinfo:
             print(f"tarinfo not found for file: {single_file_path}")
         
-        # found_tarinfo.offset = 0
-        # found_tarinfo.offset_data = 512
-        print(found_tarinfo.offset, found_tarinfo.offset_data, offset)
         range_ = "bytes={}-{}".format(offset, offset + found_tarinfo.size - 1)
-        # range = "bytes=0-0"
-        print(range_)
         response = s3_client.get_object(Bucket=BUCKET_NAME, Key=key, Range=range_)
-        # Construct tar
-        # found_fileobj = BytesIO(gzip.decompress(response["Body"].read()))
-        # found_fileobj.seek(0)
-        # tarfile_obj = BytesIO()
-        # with tarfile.open(fileobj=tarfile_obj, mode='w:') as tar:
-        #     tar.addfile(found_tarinfo, found_fileobj)
-        # assert("ContentRange" in response)
         data = response["Body"].read()
-        print("AR", data)
-        # print(data)
-        # decompressed = gzip.decompress(data)
-        # print(decompressed)
         found_fileobj = BytesIO(data)
         found_fileobj.seek(0)
         tarfile_obj = BytesIO()
@@ -191,14 +178,19 @@ class S3BasicTestSingle(S3TestBase, unittest.TestCase):
     test_type = "download_single"
     single_file_name = "foo"
 
-# class S3BigTest(S3TestBase, unittest.TestCase):
-#     test_name = "big"
-#     test_type = "download_all"
+class S3BigTest(S3TestBase, unittest.TestCase):
+    test_name = "big"
+    test_type = "download_all"
 
-# class S3BigTestSingle(S3TestBase, unittest.TestCase):
-#     test_name = "big"
-#     test_type = "download_single"
-#     single_file_name = "small"
+class S3BigTestSingle(S3TestBase, unittest.TestCase):
+    test_name = "big"
+    test_type = "download_single"
+    single_file_name = "bar"
+
+class S3BigTestSingle(S3TestBase, unittest.TestCase):
+    test_name = "big"
+    test_type = "download_single"
+    single_file_name = "small"
 
 if __name__ == "__main__":
     unittest.main()
