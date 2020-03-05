@@ -69,8 +69,9 @@ def gen_files():
     gen_text("input/simple/foo", 100)
     gen_text("input/simple/bar", 100)
     gen_text("input/big/small", 100)
-    # gen_sparse("input/big/bar", 10 * 10**9) # 10 GB
     gen_sparse("input/big/bar", 1 * 10**9) # 1 GB
+    gen_sparse("input/verybig/bar", 10 * 10**9) # 10 GB
+    gen_text("input/verybig/small", 100)
     print("done gen files")
 
 
@@ -185,10 +186,15 @@ class S3BigTest(S3TestBase, unittest.TestCase):
 class S3BigTestSingle(S3TestBase, unittest.TestCase):
     test_name = "big"
     test_type = "download_single"
+    single_file_name = "small"
+
+class S3BigTestSingle2(S3TestBase, unittest.TestCase):
+    test_name = "big"
+    test_type = "download_single"
     single_file_name = "bar"
 
-class S3BigTestSingle(S3TestBase, unittest.TestCase):
-    test_name = "big"
+class S3VeryBigTestSingle(S3TestBase, unittest.TestCase):
+    test_name = "verybig"
     test_type = "download_single"
     single_file_name = "small"
 
