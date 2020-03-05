@@ -18,7 +18,7 @@ Demo of storing a file directory in S3 and retrieving individual files.
 
 ## Benchmarks
 
-The point is that `download_single` is far faster than `download_all`. The `big` test below has two files: a 100 B file called "small" and a 1 GB file called "big". It takes over a minute  to extract the entire archive, but if you just want to preview the "small" file in the archive, it takes less than a second.
+The point is that `download_single` is far faster than `download_all`. The `big` test below has two files: a 100 B file called "small" and a 1 GB file called "big". It takes over a minute  to extract the entire archive, but if you just want to preview the "small" file in the archive (or list the files in the archive), it takes less than a second.
 
 ```
 starting test, test_name=big, test_type=download_all, single_file_name=None
